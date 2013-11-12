@@ -1,133 +1,75 @@
 
-
-
 window.addEventListener('load', function() {
-    window.setTimeout(function() {
-        var appController = new AppController();
-        appController.init();
-    }, 5000);
+    var mediator = new Mediator(),
+        appController = new AppController();
+
+    window.mediator = mediator;
+    mediator.subscribe('new_message', appController.showGrowl);
+    appController.init();
 });
 
+/**
+ * コントローラ
+ * @constructor
+ */
 var AppController = function() {
-    //部屋のリストが格納される
-    this.currentRoomArr = [];
+    this.chatRoomCollection = new ChatRoomCollection();
 };
 
 /**
  * 初期化処理
  */
 AppController.prototype.init = function () {
+    var roomListItemsEl = document.getElementById('_roomListItems'),
+        roomListElsArr = roomListItemsEl.childNodes;
 
-    var self = this;
-    var roomListItemsEl = document.getElementById('_roomListItems');
-    var roomListsArr = roomListItemsEl.childNodes;
-    this.roomNum = roomListsArr.length;
-    for (var i = 0; i < roomListsArr.length; i++){
-        //リストの数だけモデルを生成する
-        var chatRoomModel = new ChatRoomModel();
-        chatRoomModel.setData(roomListsArr[i]);
-        this.currentRoomArr.push(chatRoomModel);
+    //部屋の数だけモデルを生成する
+    for (var i = 0; i < roomListElsArr.length; i++){
+        var chatRoomModel = new ChatRoomModel(roomListElsArr[i]);
+        this.chatRoomCollection.push(chatRoomModel);
+
+        if (chatRoomModel.isIncompletion) {
+            mediator.publish('new_message', chatRoomModel);
+        }
     }
 
     //監視を始める
     this.observeRoomListItems();
-
-    //30分後にリロードする
-    setTimeout(function(){
-        self.refresh();
-    }, 1800000);
 };
 
+/**
+ * 監視する
+ */
 AppController.prototype.observeRoomListItems = function() {
     var self = this;
     setTimeout(function() {
-        self.searchIncompleteEl();
+        self.createRoomModel();
         self.observeRoomListItems();
         console.log('監視はしてます');
     }, 3000);
 };
 
 /**
- * リストの中から未読タグを検出する
+ * リストからModelを生成する
  */
-AppController.prototype.searchIncompleteEl = function() {
+AppController.prototype.createRoomModel = function() {
+    var roomListItemsEl = document.getElementById('_roomListItems'),
+        roomListElsArr = roomListItemsEl.childNodes;
 
-    //TODO: これって毎回見る必要ある？
-    //問題ないっぽい
-    //initの中と似た処理が多い？
-    var roomListItemsEl = document.getElementById('_roomListItems');
-    var roomListsArr = roomListItemsEl.childNodes;
-    var roomNum = roomListsArr.length;
-
-    for (var i = 0; i < roomListsArr.length; i++){
-
-        //TODO: if文外すと処理多くなりすぎ？
-        //if文あったほうがいい
-        if (this.hasIncompletionEl(roomListsArr[i])) {
-            var chatRoomModel = new ChatRoomModel();
-            chatRoomModel.setData(roomListsArr[i]);
-            this.compareWithLastTime(chatRoomModel);
-        }
+    for (var i = 0; i < roomListElsArr.length; i++){
+        var chatRoomModel = new ChatRoomModel(roomListElsArr[i]);
+        this.chatRoomCollection.checkUpdate(chatRoomModel);
     }
 };
 
-AppController.prototype.hasIncompletionEl = function(el) {
-    var IncompletionEl = el.querySelector('.incomplete');
-    if (IncompletionEl) {
-        return IncompletionEl;
-    } else {
-        return false;
-    }
-};
-
-AppController.prototype.compareWithLastTime = function (obj) {
-
-    var newModel = obj;
-    var lastModel = this.getLastModel(obj);
-
-    this.checkUpdate(newModel, lastModel);
-};
-
-AppController.prototype.checkUpdate = function(newModel, lastModel) {
-
-    var isUpdated = false;
-
-    if (!lastModel) {
-        return;
-    }
-
-    if (newModel.unreadNum != lastModel.unreadNum || newModel.mentionNum != lastModel.mentionNum || newModel.taskNum != lastModel.taskNum ) {
-        isUpdated = true;
-    }
-
-
-    if (isUpdated) {
-        this.showGrowl(newModel);
-    }
-
-};
-
-AppController.prototype.getLastModel = function(obj) {
-
-    var newModel = obj;
-    var lastModel;
-    for (var i = 0; i < this.currentRoomArr.length; i++) {
-        if (this.currentRoomArr[i].roomId === newModel.roomId) {
-            lastModel = this.currentRoomArr[i];
-            //TODO: これでインスタンスなくなってんの？
-            //this.currentRoomArr[i].dispose();
-            this.currentRoomArr.splice(i, 1);
-            this.currentRoomArr.push(newModel);
-            return lastModel;
-        }
-    }
-};
-
+/**
+ * Growlを表示する
+ * @param obj
+ */
 AppController.prototype.showGrowl = function(obj) {
-    console.log(obj);
     window.fluid.showGrowlNotification({
         title: obj.roomName,
-        description: "New:" + obj.unreadNum + " To:" + obj.mentionNum + " Task:" + obj.taskNum,
+        description: "New: " + obj.unreadNum + "　To: " + obj.mentionNum + "　Task: " + obj.taskNum,
         priority: 1,
         sticky: false,
         identifier: obj.roomId,
@@ -136,7 +78,6 @@ AppController.prototype.showGrowl = function(obj) {
     })
 };
 
-
 /**
  * リロード処理
  */
@@ -144,23 +85,13 @@ AppController.prototype.refresh = function() {
     location.reload();
 };
 
-
-
-var ChatRoomCollection = function() {
-
-};
-
-
-
-
-
 /**
  * ChatRoomModel
  * チャット部屋のモデル
+ * @param el
  * @constructor
  */
-var ChatRoomModel = function () {
-
+var ChatRoomModel = function (el) {
     this.roomId = null;           //チャット部屋のユニークなID
     this.roomName = "";           //チャット部屋の名前
     this.roomImgURL = "";         //チャット部屋のアイコンのURL
@@ -169,25 +100,30 @@ var ChatRoomModel = function () {
     this.mentionNum = 0;          //自分宛メッセージ数
     this.taskNum = 0;             //タスク数
 
+    if (el) {
+        this.setData(el);
+    }
 };
 
+/**
+ * データをセットする
+ * @param el
+ */
 ChatRoomModel.prototype.setData = function(el) {
-
     this.roomId = el.getAttribute('data-rid');
     this.roomName = el.getAttribute('aria-label');
     this.roomImgURL = this.getRoomImgURL(el);
     this.isIncompletion = this.hasIncompletionEl(el);
 
     if (this.isIncompletion) {
-        this.unreadNum = this.getUnreadNum(this.isIncompletion);
-        this.mentionNum = this.getMentionNum(this.isIncompletion);
-        this.taskNum = this.getTaskNum(this.isIncompletion);
+        this.unreadNum = this.getUnreadNum(el);
+        this.mentionNum = this.getMentionNum(el);
+        this.taskNum = this.getTaskNum(el);
     } else {
         this.unreadNum = 0;
         this.mentionNum = 0;
         this.taskNum = 0;
     }
-
 };
 
 /**
@@ -200,13 +136,14 @@ ChatRoomModel.prototype.getRoomImgURL = function(el) {
     return imgURL;
 };
 
+/**
+ * 未完タグを持つか
+ * @param el
+ * @returns {boolean}
+ */
 ChatRoomModel.prototype.hasIncompletionEl = function(el) {
     var IncompletionEl = el.querySelector('.incomplete');
-    if (IncompletionEl) {
-        return IncompletionEl;
-    } else {
-        return false;
-    }
+    return (IncompletionEl) ? true : false;
 };
 
 /**
@@ -216,11 +153,7 @@ ChatRoomModel.prototype.hasIncompletionEl = function(el) {
  */
 ChatRoomModel.prototype.getUnreadNum = function(el) {
     var unreadEl = el.querySelector('.unread');
-    if (unreadEl) {
-        return unreadEl.textContent;
-    } else {
-        return 0;
-    }
+    return (unreadEl) ? unreadEl.textContent : 0;
 };
 
 /**
@@ -230,11 +163,7 @@ ChatRoomModel.prototype.getUnreadNum = function(el) {
  */
 ChatRoomModel.prototype.getMentionNum = function(el) {
     var mentionEl = el.querySelector('.mention');
-    if (mentionEl) {
-        return mentionEl.textContent;
-    } else {
-        return 0;
-    }
+    return (mentionEl) ? mentionEl.textContent : 0;
 };
 
 /**
@@ -244,11 +173,7 @@ ChatRoomModel.prototype.getMentionNum = function(el) {
  */
 ChatRoomModel.prototype.getTaskNum = function(el) {
     var taskEl = el.querySelector('.icoFontActionTask');
-    if (taskEl && taskEl.parentNode) {
-        return taskEl.parentNode.textContent;
-    } else {
-        return 0;
-    }
+    return (taskEl && taskEl.parentNode) ? taskEl.parentNode.textContent : 0;
 };
 
 /**
@@ -262,4 +187,139 @@ ChatRoomModel.prototype.dispose = function() {
     this.unreadNum = null;
     this.mentionNum = null;
     this.taskNum = null;
+};
+
+
+/**
+ * コレクション
+ * @constructor
+ */
+var ChatRoomCollection = function() {
+    //各チャット部屋のモデルが格納される
+    this.currentRoomModelArr = [];
+};
+
+/**
+ * @param obj
+ */
+ChatRoomCollection.prototype.push = function(obj) {
+    this.currentRoomModelArr.push(obj);
+};
+
+/**
+ * @param index
+ * @param howMany
+ */
+ChatRoomCollection.prototype.splice = function(index, howMany) {
+    this.currentRoomModelArr.splice(index, howMany);
+};
+
+/**
+ * 新しいものと入れ替える
+ * @param newModel
+ */
+ChatRoomCollection.prototype.fetch = function(newModel) {
+    for (var i = 0; i < this.currentRoomModelArr.length; i++) {
+        if (this.currentRoomModelArr[i].roomId === newModel.roomId) {
+            this.splice(i, 1);
+            this.push(newModel);
+        }
+    }
+};
+
+/**
+ * 更新を確認する
+ * @param obj
+ */
+ChatRoomCollection.prototype.checkUpdate = function(obj) {
+    var newModel = obj,
+        lastModel = this.getLastModel(obj);
+    if (this.isUpdated(newModel, lastModel)) {
+        mediator.publish('new_message', newModel);
+        this.fetch(newModel);
+    }
+};
+
+/**
+ * 前回のモデルを返す
+ * @param obj
+ * @returns {*}
+ */
+ChatRoomCollection.prototype.getLastModel = function(obj) {
+    var newModel = obj,
+        lastModel;
+    for (var i = 0; i < this.currentRoomModelArr.length; i++) {
+        if (this.currentRoomModelArr[i].roomId === newModel.roomId) {
+            lastModel = this.currentRoomModelArr[i];
+            return lastModel;
+        }
+    }
+};
+
+/**
+ * 更新があったか
+ * @param newModel
+ * @param lastModel
+ * @returns {boolean}
+ */
+ChatRoomCollection.prototype.isUpdated = function(newModel, lastModel) {
+    if (!lastModel) {
+        return false;
+    }
+    return newModel.unreadNum != lastModel.unreadNum ||
+        newModel.mentionNum != lastModel.mentionNum ||
+        newModel.taskNum != lastModel.taskNum;
+};
+
+/**
+ * メディエータ
+ * @constructor
+ */
+var Mediator = function() {
+    this.topics = {};
+};
+
+/**
+ * サブスクライバ
+ * @param topic
+ * @param fn
+ * @returns {*}
+ */
+Mediator.prototype.subscribe = function(topic, fn) {
+    if (!this.topics[topic]) {
+        this.topics[topic] = [];
+    }
+    this.topics[topic].push({
+        context: this,
+        callback: fn
+    });
+    return this;
+};
+
+/**
+ * パブリッシュ
+ * @param topic
+ * @returns {*}
+ */
+Mediator.prototype.publish = function(topic) {
+    var args;
+    if (!this.topics[topic]) {
+        return false;
+    }
+    args = Array.prototype.slice.call(arguments, 1);
+    for (var i = 0, len = this.topics[topic].length; i < len; i++) {
+        var subscription = this.topics[topic][i];
+        subscription.callback.apply(subscription.context, args);
+    }
+    return this;
+};
+
+/**
+ * メディエータを持たせる
+ * @param obj
+ */
+Mediator.prototype.installTo = function(obj) {
+    obj.topics = this.topics;
+    obj.subscribe = this.subscribe;
+    obj.publish = this.publish;
 };
